@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#172554">
+  <title>Scanner Kamera Perpustakaan</title>
+  <style>
+    :root{--navy:#172554;--blue:#2563eb;--ink:#172033;--muted:#6b7890;--line:#dce3ee;--green:#0b8b63;--red:#c43c3c}
+    *{box-sizing:border-box}body{margin:0;background:#f1f5fb;color:var(--ink);font-family:Arial,sans-serif;min-height:100vh;padding:16px}
+    .wrap{max-width:560px;margin:0 auto}.head{background:var(--navy);color:#fff;border-radius:18px;padding:20px 18px;margin-bottom:14px;box-shadow:0 12px 30px rgba(23,37,84,.16)}
+    .brand{display:flex;align-items:center;gap:11px}.mark{width:42px;height:42px;background:#fff;color:var(--navy);border-radius:12px;display:grid;place-items:center;font-size:23px}.head h1{margin:0;font-size:17px}.head p{margin:5px 0 0;color:#c4d0ec;font-size:11px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:17px;margin-bottom:13px;box-shadow:0 5px 16px rgba(23,37,84,.04)}
+    .hint{font-size:12px;color:var(--muted);line-height:1.55;margin:0 0 13px}.video-frame{overflow:hidden;border-radius:12px;background:#0f172a;min-height:220px}.video-frame #reader{width:100%;min-height:220px}.video-frame video{object-fit:cover!important}.video-frame img{max-width:100%}
+    #reader__dashboard_section_csr button{background:var(--blue)!important;color:#fff!important;border:0!important;border-radius:8px!important;padding:8px 12px!important;font-weight:700!important}#reader__dashboard_section_swaplink{color:var(--blue)!important}
+    .controls{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}.btn{border:0;border-radius:10px;padding:13px;font-weight:700;font-size:12px;cursor:pointer}.primary{background:var(--blue);color:#fff}.light{background:#eef2f8;color:#334155}.danger{background:#fff0f0;color:var(--red)}.status{padding:11px 12px;background:#f2f6fd;color:#53627a;border-radius:9px;font-size:11px;line-height:1.5;margin-top:12px}.status.good{background:#e9f8f1;color:#087c55}.status.bad{background:#fff0f0;color:#bd3535}.last{font-size:12px;margin-top:12px;display:flex;justify-content:space-between;gap:10px}.last strong{word-break:break-all;text-align:right}.foot{text-align:center;color:#9aa4b3;font-size:10px;padding:8px}
+    @media(max-width:380px){body{padding:10px}.controls{grid-template-columns:1fr}.head{padding:17px}}
+  </style>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="head"><div class="brand"><div class="mark">▦</div><div><h1>Scanner Perpustakaan</h1><p>Pindai barcode anggota dan buku menggunakan kamera HP.</p></div></div></header>
+    <section class="card">
+      <p class="hint">Izinkan akses kamera, gunakan kamera belakang, lalu arahkan barcode ke dalam bingkai. Hasil pemindaian akan dikirim otomatis ke aplikasi perpustakaan yang membuka halaman ini.</p>
+      <div class="video-frame"><div id="reader"></div></div>
+      <div class="controls"><button class="btn primary" id="startButton" onclick="startCamera()">Aktifkan Kamera</button><button class="btn light" id="stopButton" onclick="stopCamera()" disabled>Jeda Kamera</button></div>
+      <div id="status" class="status">Siap. Tekan Aktifkan Kamera untuk mulai memindai.</div>
+      <div class="last"><span>Barcode terakhir</span><strong id="lastCode">—</strong></div>
+      <div class="controls"><button class="btn light" onclick="window.location.reload()">Muat Ulang</button><button class="btn danger" onclick="closeScanner()">Selesai / Tutup</button></div>
+    </section>
+    <div class="foot">Scanner kamera berjalan pada halaman HTTPS terpisah agar izin kamera browser dapat digunakan.</div>
+  </div>
+<script>
+let html5QrCode = null;
+let cameraRunning = false;
+let lastCode = '';
+let lastScanTime = 0;
+
+function setStatus(message, type) {
+  const node = document.getElementById('status');
+  node.textContent = message;
+  node.className = 'status' + (type ? ' ' + type : '');
+}
+
+function sendToApp(code) {
+  if (!window.opener || window.opener.closed) {
+    setStatus('Halaman aplikasi utama tidak terhubung. Tutup halaman ini dan buka scanner dari aplikasi perpustakaan.', 'bad');
+    return;
+  }
+  window.opener.postMessage({ type: 'LIBRARY_SCAN_RESULT', code: code, at: Date.now() }, '*');
+}
+
+async function startCamera() {
+  if (cameraRunning) return;
+  if (!window.opener || window.opener.closed) {
+    setStatus('Buka scanner melalui tombol kamera di aplikasi perpustakaan agar hasil scan dapat dikirim.', 'bad');
+  }
+  if (typeof Html5Qrcode === 'undefined') {
+    setStatus('Library scanner gagal dimuat. Periksa koneksi internet lalu muat ulang halaman.', 'bad');
+    return;
+  }
+  html5QrCode = html5QrCode || new Html5Qrcode('reader', {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.QR_CODE
+    ],
+    verbose: false
+  });
+  const config = { fps: 12, qrbox: { width: 280, height: 140 }, aspectRatio: 1.6, disableFlip: false };
+  setStatus('Meminta izin kamera HP...', '');
+  try {
+    await html5QrCode.start({ facingMode: 'environment' }, config, function (decodedText) {
+      const code = String(decodedText || '').trim();
+      const now = Date.now();
+      if (!code || code === lastCode) return;
+      lastCode = code;
+      lastScanTime = now;
+      document.getElementById('lastCode').textContent = code;
+      sendToApp(code);
+      setStatus('Barcode ' + code + ' berhasil dikirim. Singkirkan barcode dari kamera sebelum memindai label yang sama berikutnya.', 'good');
+    }, function () {
+      if (lastCode && Date.now() - lastScanTime > 900) lastCode = '';
+    });
+    cameraRunning = true;
+    document.getElementById('startButton').disabled = true;
+    document.getElementById('stopButton').disabled = false;
+    setStatus('Kamera aktif. Arahkan barcode ke dalam bingkai.', 'good');
+  } catch (error) {
+    cameraRunning = false;
+    const message = error && error.message ? error.message : String(error);
+    setStatus('Kamera tidak dapat dibuka: ' + message + '. Pastikan izin kamera diberikan dan halaman dibuka melalui HTTPS.', 'bad');
+  }
+}
+
+async function stopCamera() {
+  if (html5QrCode && cameraRunning) {
+    try { await html5QrCode.stop(); } catch (error) {}
+  }
+  cameraRunning = false;
+  document.getElementById('startButton').disabled = false;
+  document.getElementById('stopButton').disabled = true;
+  setStatus('Kamera dijeda.', '');
+}
+
+async function closeScanner() {
+  await stopCamera();
+  if (window.opener && !window.opener.closed) window.close();
+  else setStatus('Halaman dapat ditutup. Kembali ke aplikasi perpustakaan.', '');
+}
+
+window.addEventListener('beforeunload', function () {
+  try { if (html5QrCode && cameraRunning) html5QrCode.stop(); } catch (error) {}
+});
+</script>
+</body>
+</html>
